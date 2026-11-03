@@ -4,12 +4,13 @@ Run locally:  streamlit run app.py
 """
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import joblib
 import numpy as np
 import pandas as pd
 import streamlit as st
+from fpdf import FPDF
 
 st.set_page_config(page_title="Diabetes Risk Assessment", page_icon="🩺", layout="wide")
 
@@ -73,6 +74,70 @@ TIPS = {
         "If you have symptoms (constant thirst, frequent urination, blurred vision), seek care promptly.",
     ],
 }
+
+def malaysia_now():
+    # The cloud server runs on UTC; reports show Malaysia time (UTC+8).
+    return datetime.now(timezone(timedelta(hours=8))).strftime("%d %b %Y, %I:%M %p (MYT)")
+
+
+def pdf_safe(text):
+    # The built-in PDF font covers Latin-1 only, so swap the few symbols outside it.
+    text = str(text).replace("μ", "u").replace("–", "-").replace("’", "'")
+    return text.encode("latin-1", "replace").decode("latin-1")
+
+
+def make_pdf(rows, band, prob, model_name, tips, warning):
+    """Build a one-page PDF report and return its bytes."""
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_margins(18, 18, 18)
+    pdf.set_font("Helvetica", "B", 18)
+    pdf.cell(0, 10, "Diabetes Risk Assessment Report", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(90, 90, 90)
+    pdf.cell(0, 6, pdf_safe(f"Generated {malaysia_now()}"), new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(4)
+
+    colour = {"Low": (34, 139, 34), "Moderate": (204, 153, 0), "High": (200, 30, 30)}[band]
+    pdf.set_text_color(*colour)
+    pdf.set_font("Helvetica", "B", 15)
+    pdf.cell(0, 9, pdf_safe(f"Estimated risk: {band} ({prob:.0%} probability)"),
+             new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.cell(0, 6, pdf_safe(f"Model used: {model_name}"), new_x="LMARGIN", new_y="NEXT")
+    if warning:
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.multi_cell(0, 6, pdf_safe(warning), new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(4)
+
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 8, "Your details", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "", 10)
+    with pdf.table(col_widths=(45, 55), text_align=("LEFT", "LEFT"), line_height=7) as table:
+        head = table.row()
+        head.cell("Measurement")
+        head.cell("Your value")
+        for field, value in rows:
+            r = table.row()
+            r.cell(pdf_safe(field))
+            r.cell(pdf_safe(value))
+    pdf.ln(4)
+
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 8, "What you can do", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "", 10)
+    for tip in tips:
+        pdf.multi_cell(0, 6, pdf_safe(f"- {tip}"), new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(4)
+
+    pdf.set_font("Helvetica", "I", 9)
+    pdf.set_text_color(90, 90, 90)
+    pdf.multi_cell(0, 5, "This report is for education and screening only. It is not a medical "
+                         "diagnosis and does not replace a blood test or a doctor's advice. "
+                         "Model trained on the Pima Indians Diabetes dataset (women aged 21+).")
+    return bytes(pdf.output())
+
 
 # ---------------------------------------------------------------- header
 st.title("🩺 Diabetes Risk Assessment")
@@ -185,13 +250,28 @@ with tab_check:
                 "Field": ["Date", "Age", "Pregnancies", "Glucose (mg/dL)", "Diastolic BP (mmHg)",
                           "BMI", "Family history", "Skin thickness (mm)", "Insulin (μU/mL)",
                           "Model", "Probability", "Risk level"],
-                "Value": [datetime.now().strftime("%Y-%m-%d %H:%M"), age, pregnancies, glucose,
+                "Value": [malaysia_now(), age, pregnancies, glucose,
                           bp, bmi, family, "not given" if skin is None else skin, "not given" if insulin is None else insulin,
                           model_name, f"{prob:.0%}",
                           band + (" (glucose in diabetic range)" if override else "")],
             })
-            st.download_button("Download my report (CSV)", report.to_csv(index=False),
-                                file_name="diabetes_risk_report.csv", mime="text/csv")
+            details = [(f, v) for f, v in zip(report["Field"], report["Value"])
+                       if f not in ("Date", "Model", "Probability", "Risk level")]
+            if override:
+                warning = "Glucose is 200 mg/dL or higher, which is in the diabetic range. Please see a doctor."
+            elif glucose >= 140:
+                warning = "Glucose of 140-199 mg/dL is in the pre-diabetes range."
+            else:
+                warning = ""
+            st.markdown("**Download your report**")
+            d1, d2 = st.columns(2)
+            d1.download_button("PDF (easy to open and print)",
+                               make_pdf(details, band, prob, model_name, TIPS[band], warning),
+                               file_name="diabetes_risk_report.pdf", mime="application/pdf",
+                               width="stretch")
+            d2.download_button("CSV (for Excel)", report.to_csv(index=False).encode("utf-8-sig"),
+                               file_name="diabetes_risk_report.csv", mime="text/csv",
+                               width="stretch")
 
     st.caption("⚠️ This tool is for education and screening only. It does not replace a "
                "blood test or a doctor's advice.")
