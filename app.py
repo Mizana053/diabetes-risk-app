@@ -76,8 +76,8 @@ TIPS = {
 
 # ---------------------------------------------------------------- header
 st.title("🩺 Diabetes Risk Assessment")
-st.caption("An AI risk-screening tool trained on the Pima Indians Diabetes dataset (768 patients). "
-           "It estimates risk only and is not a medical diagnosis.")
+st.caption("An AI risk-screening tool for women aged 21+, trained on the Pima Indians Diabetes "
+           "dataset (768 women). It estimates risk only and is not a medical diagnosis.")
 
 tab_check, tab_models, tab_data, tab_about = st.tabs(
     ["Risk check", "Model performance", "Data insights", "About"])
@@ -88,10 +88,8 @@ with tab_check:
 
     with left:
         st.subheader("Your details")
-        sex = st.radio("Sex", ["Female", "Male"], horizontal=True)
-        if sex == "Male":
-            st.caption("ℹ️ The training data has women only, so results for men are a rough "
-                       "estimate. Pregnancies is set to 0.")
+        st.info("This tool is for **women aged 21 and over**, the group the models were "
+                "trained on.")
         bmi_mode = st.radio("Body size", ["Height and weight", "I know my BMI"], horizontal=True)
         errors = []
 
@@ -106,10 +104,7 @@ with tab_check:
         with st.form("inputs"):
             age = num("Age (years)", 21, 100, 35,
                       help="The model was trained on adults aged 21 and over.", unit=" years")
-            if sex == "Female":
-                pregnancies = num("Number of pregnancies (0 if none)", 0, 17, 0)
-            else:
-                pregnancies = 0
+            pregnancies = num("Number of pregnancies (0 if none)", 0, 17, 0)
             glucose = num("Blood glucose (mg/dL)", 40, 400, 110, unit=" mg/dL",
                           help="2-hour glucose from an oral glucose tolerance test. "
                                "To convert from mmol/L, multiply by 18.")
@@ -187,10 +182,10 @@ with tab_check:
                 st.markdown(f"- {tip}")
 
             report = pd.DataFrame({
-                "Field": ["Date", "Sex", "Age", "Pregnancies", "Glucose (mg/dL)", "Diastolic BP (mmHg)",
+                "Field": ["Date", "Age", "Pregnancies", "Glucose (mg/dL)", "Diastolic BP (mmHg)",
                           "BMI", "Family history", "Skin thickness (mm)", "Insulin (μU/mL)",
                           "Model", "Probability", "Risk level"],
-                "Value": [datetime.now().strftime("%Y-%m-%d %H:%M"), sex, age, pregnancies, glucose,
+                "Value": [datetime.now().strftime("%Y-%m-%d %H:%M"), age, pregnancies, glucose,
                           bp, bmi, family, "not given" if skin is None else skin, "not given" if insulin is None else insulin,
                           model_name, f"{prob:.0%}",
                           band + (" (glucose in diabetic range)" if override else "")],
