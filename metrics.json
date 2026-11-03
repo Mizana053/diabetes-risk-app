@@ -1,0 +1,51 @@
+{
+  "Logistic Regression": {
+    "accuracy": 0.8051948051948052,
+    "precision": 0.7297297297297297,
+    "recall": 0.574468085106383,
+    "f1": 0.6428571428571429,
+    "cv10_accuracy": 0.7733595352016405,
+    "target": 0.78,
+    "best_params": {
+      "C": 10
+    }
+  },
+  "K-Nearest Neighbours": {
+    "accuracy": 0.8051948051948052,
+    "precision": 0.717948717948718,
+    "recall": 0.5957446808510638,
+    "f1": 0.6511627906976745,
+    "cv10_accuracy": 0.7694634313055366,
+    "target": 0.76,
+    "best_params": {
+      "n_neighbors": 31,
+      "weights": "uniform"
+    }
+  },
+  "Random Forest": {
+    "accuracy": 0.8051948051948052,
+    "precision": 0.6888888888888889,
+    "recall": 0.6595744680851063,
+    "f1": 0.6739130434782609,
+    "cv10_accuracy": 0.7629015721120984,
+    "target": 0.79,
+    "best_params": {
+      "max_depth": null,
+      "min_samples_leaf": 1,
+      "n_estimators": 400
+    }
+  },
+  "Decision Tree": {
+    "accuracy": 0.7662337662337663,
+    "precision": 0.6410256410256411,
+    "recall": 0.5319148936170213,
+    "f1": 0.5813953488372093,
+    "cv10_accuracy": 0.7433185235816815,
+    "target": 0.75,
+    "best_params": {
+      "criterion": "entropy",
+      "max_depth": 6,
+      "min_samples_leaf": 15
+    }
+  }
+}

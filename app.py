@@ -26,13 +26,17 @@ FAMILY_HISTORY = {
 }
 
 
-@st.cache_resource(show_spinner="Training the four models (first start only, about a minute)...")
+@st.cache_resource(show_spinner="Preparing the four models (first start only)...")
 def load_models_and_metrics():
-    # Use saved models if present; otherwise train them from diabetes.csv (train.py).
-    if os.path.exists("models.joblib") and os.path.exists("metrics.json"):
+    # 1. Saved models (after running train.py locally), 2. rebuild the tuned models from the
+    # grid-search results in metrics.json (a few seconds), 3. full grid search (about a minute).
+    from train import fit_best, train_models
+    if os.path.exists("metrics.json"):
         with open("metrics.json") as f:
-            return joblib.load("models.joblib"), json.load(f)
-    from train import train_models
+            metrics = json.load(f)
+        if os.path.exists("models.joblib"):
+            return joblib.load("models.joblib"), metrics
+        return fit_best(metrics), metrics
     return train_models(verbose=False)
 
 
@@ -230,6 +234,9 @@ with tab_check:
 
             st.metric("Estimated risk", f"{icon} {band}")
             st.caption(f"{prob:.0%} probability of diabetes ({model_name})")
+            mm = metrics[model_name]
+            st.caption(f"{model_name} on the 154-patient test set: accuracy {mm['accuracy']:.1%}, "
+                       f"precision {mm['precision']:.1%}, recall {mm['recall']:.1%}.")
             st.progress(min(max(prob, 0.0), 1.0))
 
             st.markdown("**All four models**")

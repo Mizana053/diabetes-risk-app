@@ -1,7 +1,9 @@
 """Train and tune four diabetes risk models on the Pima Indians Diabetes dataset.
 
 Run:  python train.py
-Creates: models.joblib (all four trained pipelines) and metrics.json (test scores).
+Creates: models.joblib (all four trained pipelines) and metrics.json (test scores and the
+best settings found by the grid search). The app rebuilds the four best models from
+metrics.json in a few seconds instead of repeating the full search.
 """
 import json
 
@@ -36,6 +38,33 @@ def pipeline(model):
     return Pipeline([("impute", KNNImputer(n_neighbors=5)),
                      ("scale", StandardScaler()),
                      ("model", model)])
+
+
+ESTIMATORS = {
+    "Logistic Regression": lambda: LogisticRegression(max_iter=1000),
+    "K-Nearest Neighbours": lambda: KNeighborsClassifier(),
+    "Random Forest": lambda: RandomForestClassifier(random_state=SEED),
+    "Decision Tree": lambda: DecisionTreeClassifier(random_state=SEED),
+}
+
+
+def load_split(csv_path="diabetes.csv"):
+    """Load and clean the data, then make the same 80/20 split used for training."""
+    df = pd.read_csv(csv_path, header=None, names=COLUMNS)
+    df[ZERO_MEANS_MISSING] = df[ZERO_MEANS_MISSING].replace(0, np.nan)
+    X, y = df[FEATURES], df["Outcome"]
+    return train_test_split(X, y, test_size=0.2, random_state=SPLIT_SEED)
+
+
+def fit_best(metrics, csv_path="diabetes.csv"):
+    """Rebuild the four tuned models from the best settings saved in metrics.json."""
+    X_train, _, y_train, _ = load_split(csv_path)
+    models = {}
+    for name, m in metrics.items():
+        model = pipeline(ESTIMATORS[name]())
+        model.set_params(**{f"model__{k}": v for k, v in m["best_params"].items()})
+        models[name] = model.fit(X_train, y_train)
+    return models
 
 
 def train_models(csv_path="diabetes.csv", verbose=True):
