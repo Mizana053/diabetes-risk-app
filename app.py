@@ -172,16 +172,24 @@ with tab_check:
             else:
                 bmi = num("bmi", 15.0, 70.0, 24.0, step=0.1, unit=" kg/m²")
 
-            family = st.selectbox(t("family", lang), list(FAMILY_HISTORY), key="in_family",
+            # These lists show translated option names, so they get a new key per language
+            # (to redraw in that language) and keep the user's choice in session state.
+            fam_opts = list(FAMILY_HISTORY)
+            family = st.selectbox(t("family", lang), fam_opts, key=f"in_family_{lang}",
+                                  index=fam_opts.index(SS.get("family_val", fam_opts[0])),
                                   format_func=lambda k: label(k, lang))
-            diet = st.multiselect(t("diet", lang), DIET_OPTIONS, key="in_diet",
+            diet = st.multiselect(t("diet", lang), DIET_OPTIONS, key=f"in_diet_{lang}",
+                                  default=SS.get("diet_val", []),
                                   format_func=lambda k: label(k, lang),
                                   placeholder=t("none", lang), help=t("diet_help", lang),
                                   select_all=False)
             conditions = st.multiselect(t("conditions", lang), CONDITION_OPTIONS,
-                                        key="in_conditions", format_func=lambda k: label(k, lang),
+                                        key=f"in_conditions_{lang}",
+                                        default=SS.get("conditions_val", []),
+                                        format_func=lambda k: label(k, lang),
                                         placeholder=t("none", lang),
                                         help=t("conditions_help", lang), select_all=False)
+            SS.family_val, SS.diet_val, SS.conditions_val = family, diet, conditions
 
             with st.expander(t("optional_lab", lang)):
                 st.caption(t("optional_lab_note", lang))
@@ -435,8 +443,11 @@ with tab_data:
     avg.columns = [label(c, lang) for c in avg.columns]
     st.dataframe(avg.round(1), width="stretch")
 
-    feature = st.selectbox(t("compare", lang), ["Glucose", "BMI", "Age", "BloodPressure"],
-                           format_func=lambda k: label(k, lang), key="compare")
+    cmp_opts = ["Glucose", "BMI", "Age", "BloodPressure"]
+    feature = st.selectbox(t("compare", lang), cmp_opts, key=f"compare_{lang}",
+                           index=cmp_opts.index(SS.get("compare_val", "Glucose")),
+                           format_func=lambda k: label(k, lang))
+    SS.compare_val = feature
     bins = pd.cut(clean[feature], 10)
     dist = clean.groupby([bins, "Outcome"], observed=True).size().unstack(fill_value=0)
     dist.columns = [label("Not diabetic", lang), label("Diabetic", lang)]
