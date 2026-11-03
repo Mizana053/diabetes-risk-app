@@ -79,6 +79,61 @@ TIPS = {
     ],
 }
 
+def weekly_plan(band, bmi, glucose, weight=None):
+    """Personalised 7-day exercise plan and food guide, based on risk level, BMI and glucose."""
+    heavy = bmi >= 27.5  # Asian cut-off for obesity: prefer low-impact exercise
+    cardio = "swimming or cycling" if heavy else "brisk walking"
+    if band == "Low":
+        days = [
+            ("Monday", f"30 min {cardio}"),
+            ("Tuesday", "20-30 min strength exercises (squats, wall push-ups, resistance band)"),
+            ("Wednesday", "30 min brisk walking"),
+            ("Thursday", "Rest or 15 min stretching"),
+            ("Friday", f"30 min {cardio}"),
+            ("Saturday", "45 min active outing: badminton, hiking or a park walk"),
+            ("Sunday", "Rest"),
+        ]
+    elif band == "Moderate":
+        days = [
+            ("Monday", f"30 min {cardio} + 10 min walk after dinner"),
+            ("Tuesday", "30 min strength exercises (squats, lunges, resistance band)"),
+            ("Wednesday", f"40 min {cardio}"),
+            ("Thursday", "20 min yoga or stretching + 10 min walk after dinner"),
+            ("Friday", f"30 min {cardio} + 10 min walk after dinner"),
+            ("Saturday", "45-60 min active outing: badminton, hiking or cycling"),
+            ("Sunday", "20 min light walk"),
+        ]
+    else:
+        days = [
+            ("Monday", "20-30 min easy walk, ideally after a meal"),
+            ("Tuesday", "20 min light strength exercises (chair squats, wall push-ups)"),
+            ("Wednesday", "30 min easy walk"),
+            ("Thursday", "15 min stretching + 10 min walk after dinner"),
+            ("Friday", "30 min easy walk"),
+            ("Saturday", f"30-40 min light {cardio}"),
+            ("Sunday", "Rest"),
+        ]
+    food = [
+        "Use the Malaysian Healthy Plate (Suku-Suku Separuh): half vegetables and fruit, "
+        "a quarter protein (fish, chicken, tofu, eggs), a quarter rice or noodles.",
+        "Drink plain water; order teh O or kopi O kosong / kurang manis instead of teh tarik or sirap.",
+        "Breakfast: oats or wholemeal bread with egg instead of roti canai or nasi lemak.",
+        "Snacks: guava, apple or a handful of nuts instead of kuih, biscuits or fried snacks.",
+        "Choose grilled, steamed or soup dishes over fried and santan (coconut milk) dishes.",
+    ]
+    if glucose >= 140 or band != "Low":
+        food.insert(1, "Keep rice to about 1 cup per meal and switch to brown rice or "
+                       "mixed rice when you can.")
+    if bmi >= 23 and weight:
+        food.append(f"Weight goal: losing 5-7% of your weight ({weight * 0.05:.1f}-"
+                    f"{weight * 0.07:.1f} kg) over 6 months lowers diabetes risk.")
+    elif bmi >= 23:
+        food.append("Weight goal: losing 5-7% of your body weight over 6 months lowers diabetes risk.")
+    note = ("Start slowly and build up. Check with a doctor before starting exercise, "
+            "especially with high risk or other health conditions.")
+    return days, food, note
+
+
 def malaysia_now():
     # The cloud server runs on UTC; reports show Malaysia time (UTC+8).
     return datetime.now(timezone(timedelta(hours=8))).strftime("%d %b %Y, %I:%M %p (MYT)")
@@ -90,8 +145,8 @@ def pdf_safe(text):
     return text.encode("latin-1", "replace").decode("latin-1")
 
 
-def make_pdf(rows, band, prob, model_name, tips, warning):
-    """Build a one-page PDF report and return its bytes."""
+def make_pdf(rows, band, prob, model_name, tips, warning, plan=None):
+    """Build the PDF report and return its bytes."""
     pdf = FPDF()
     pdf.add_page()
     pdf.set_margins(18, 18, 18)
@@ -134,6 +189,29 @@ def make_pdf(rows, band, prob, model_name, tips, warning):
     for tip in tips:
         pdf.multi_cell(0, 6, pdf_safe(f"- {tip}"), new_x="LMARGIN", new_y="NEXT")
     pdf.ln(4)
+
+    if plan:
+        days, food, note = plan
+        pdf.set_font("Helvetica", "B", 12)
+        pdf.cell(0, 8, "Your weekly plan", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "", 10)
+        with pdf.table(col_widths=(25, 75), text_align=("LEFT", "LEFT"), line_height=7) as table:
+            head = table.row()
+            head.cell("Day")
+            head.cell("Exercise")
+            for day, activity in days:
+                r = table.row()
+                r.cell(day)
+                r.cell(pdf_safe(activity))
+        pdf.ln(3)
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.cell(0, 7, "Food guide", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "", 10)
+        for item in food:
+            pdf.multi_cell(0, 6, pdf_safe(f"- {item}"), new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "I", 9)
+        pdf.multi_cell(0, 5, pdf_safe(note), new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(4)
 
     pdf.set_font("Helvetica", "I", 9)
     pdf.set_text_color(90, 90, 90)
@@ -253,6 +331,17 @@ with tab_check:
             for tip in TIPS[band]:
                 st.markdown(f"- {tip}")
 
+            plan = weekly_plan(band, bmi, glucose, w if bmi_mode == "Height and weight" else None)
+            st.markdown("**Your weekly plan**")
+            p_ex, p_food = st.tabs(["Exercise", "Food guide"])
+            with p_ex:
+                st.dataframe(pd.DataFrame(plan[0], columns=["Day", "Exercise"]),
+                             hide_index=True, width="stretch")
+            with p_food:
+                for item in plan[1]:
+                    st.markdown(f"- {item}")
+            st.caption(plan[2])
+
             report = pd.DataFrame({
                 "Field": ["Date", "Age", "Pregnancies", "Glucose (mg/dL)", "Diastolic BP (mmHg)",
                           "BMI", "Family history", "Skin thickness (mm)", "Insulin (μU/mL)",
@@ -273,7 +362,7 @@ with tab_check:
             st.markdown("**Download your report**")
             d1, d2 = st.columns(2)
             d1.download_button("PDF (easy to open and print)",
-                               make_pdf(details, band, prob, model_name, TIPS[band], warning),
+                               make_pdf(details, band, prob, model_name, TIPS[band], warning, plan),
                                file_name="diabetes_risk_report.pdf", mime="application/pdf",
                                width="stretch")
             d2.download_button("CSV (for Excel)", report.to_csv(index=False).encode("utf-8-sig"),
