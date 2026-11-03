@@ -79,7 +79,66 @@ TIPS = {
     ],
 }
 
-def weekly_plan(band, bmi, glucose, weight=None, gentle=False):
+DIET_OPTIONS = ["Vegetarian", "Vegan", "No eggs", "No nuts", "No fish or seafood", "No soy",
+                "No gluten / wheat", "No dairy"]
+
+
+def food_guide(diet):
+    """Food tips that avoid the user's allergies and diet restrictions."""
+    d = set(diet)
+    vegan = "Vegan" in d
+    veg = vegan or "Vegetarian" in d
+    no_egg = vegan or "No eggs" in d
+    no_fish = veg or "No fish or seafood" in d
+    no_soy = "No soy" in d
+    no_nuts = "No nuts" in d
+    no_gluten = "No gluten / wheat" in d
+    no_dairy = vegan or "No dairy" in d
+
+    protein = []
+    if not no_fish:
+        protein.append("fish")
+    if not veg:
+        protein.append("chicken")
+    if not no_soy:
+        protein.append("tofu or tempeh")
+    if not no_egg:
+        protein.append("eggs")
+    protein += ["dhal or lentils", "chickpeas"]
+
+    base = "brown rice porridge or rice thosai/idli" if no_gluten else "oats or wholemeal bread"
+    if not no_egg:
+        topping = "an egg"
+    elif not no_soy:
+        topping = "tofu scramble"
+    elif not no_nuts:
+        topping = "peanut butter"
+    else:
+        topping = "a banana or fruit"
+
+    snacks = ["guava", "apple"]
+    if not no_nuts:
+        snacks.append("a handful of nuts")
+    if not no_dairy:
+        snacks.append("plain unsweetened yoghurt")
+    snacks.append("roasted chickpeas")
+
+    food = [
+        "Use the Malaysian Healthy Plate (Suku-Suku Separuh): half vegetables and fruit, "
+        f"a quarter protein ({', '.join(protein)}), a quarter "
+        + ("rice or rice noodles (bihun, kuey teow)." if no_gluten else "rice or noodles."),
+        "Drink plain water; order teh O or kopi O kosong / kurang manis instead of teh tarik or sirap.",
+        f"Breakfast: {base} with {topping} instead of roti canai or nasi lemak.",
+        f"Snacks: {', '.join(snacks[:-1])} or {snacks[-1]} instead of kuih, biscuits or fried snacks.",
+        "Choose grilled, steamed or soup dishes over fried and santan (coconut milk) dishes.",
+    ]
+    if diet:
+        food.append("Adjusted for your diet: " + ", ".join(diet) + ". Always check food labels "
+                    "and follow your doctor's or dietitian's advice for allergies.")
+    return food
+
+
+def weekly_plan(band, bmi, glucose, weight=None, gentle=False, diet=()):
     """Personalised 7-day exercise plan and food guide, based on risk level, BMI and glucose.
     gentle=True (age 65+ or limited mobility) gives a low-impact plan."""
     heavy = bmi >= 27.5  # Asian cut-off for obesity: prefer low-impact exercise
@@ -125,14 +184,7 @@ def weekly_plan(band, bmi, glucose, weight=None, gentle=False):
             ("Saturday", f"30-40 min light {cardio}"),
             ("Sunday", "Rest"),
         ]
-    food = [
-        "Use the Malaysian Healthy Plate (Suku-Suku Separuh): half vegetables and fruit, "
-        "a quarter protein (fish, chicken, tofu, eggs), a quarter rice or noodles.",
-        "Drink plain water; order teh O or kopi O kosong / kurang manis instead of teh tarik or sirap.",
-        "Breakfast: oats or wholemeal bread with egg instead of roti canai or nasi lemak.",
-        "Snacks: guava, apple or a handful of nuts instead of kuih, biscuits or fried snacks.",
-        "Choose grilled, steamed or soup dishes over fried and santan (coconut milk) dishes.",
-    ]
+    food = food_guide(diet)
     if glucose >= 140 or band != "Low":
         food.insert(1, "Keep rice to about 1 cup per meal and switch to brown rice or "
                        "mixed rice when you can.")
@@ -285,6 +337,9 @@ with tab_check:
                 bmi = num("BMI (kg/m²)", 15.0, 70.0, 24.0, step=0.1, unit=" kg/m²")
 
             family = st.selectbox("Family history of diabetes", list(FAMILY_HISTORY))
+            diet = st.multiselect("Food allergies or diet (optional)", DIET_OPTIONS,
+                                  placeholder="None",
+                                  help="The food guide will avoid these foods.")
             limited = st.checkbox("I have joint pain or limited mobility",
                                   help="Gives a gentle, low-impact exercise plan. "
                                        "This is applied automatically from age 65.")
@@ -353,7 +408,7 @@ with tab_check:
 
             gentle = limited or age >= 65
             plan = weekly_plan(band, bmi, glucose, w if bmi_mode == "Height and weight" else None,
-                               gentle=gentle)
+                               gentle=gentle, diet=diet)
             st.markdown("**Your weekly plan**")
             p_ex, p_food = st.tabs(["Exercise", "Food guide"])
             with p_ex:
@@ -367,10 +422,10 @@ with tab_check:
             report = pd.DataFrame({
                 "Field": ["Date", "Age", "Pregnancies", "Glucose (mg/dL)", "Diastolic BP (mmHg)",
                           "BMI", "Family history", "Skin thickness (mm)", "Insulin (μU/mL)",
-                          "Joint pain / limited mobility", "Model", "Probability", "Risk level"],
+                          "Joint pain / limited mobility", "Food allergies or diet", "Model", "Probability", "Risk level"],
                 "Value": [malaysia_now(), age, pregnancies, glucose,
                           bp, bmi, family, "not given" if skin is None else skin, "not given" if insulin is None else insulin,
-                          "Yes" if limited else "No", model_name, f"{prob:.0%}",
+                          "Yes" if limited else "No", ", ".join(diet) or "None", model_name, f"{prob:.0%}",
                           band + (" (glucose in diabetic range)" if override else "")],
             })
             details = [(f, v) for f, v in zip(report["Field"], report["Value"])
