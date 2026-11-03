@@ -79,11 +79,23 @@ TIPS = {
     ],
 }
 
-def weekly_plan(band, bmi, glucose, weight=None):
-    """Personalised 7-day exercise plan and food guide, based on risk level, BMI and glucose."""
+def weekly_plan(band, bmi, glucose, weight=None, gentle=False):
+    """Personalised 7-day exercise plan and food guide, based on risk level, BMI and glucose.
+    gentle=True (age 65+ or limited mobility) gives a low-impact plan."""
     heavy = bmi >= 27.5  # Asian cut-off for obesity: prefer low-impact exercise
     cardio = "swimming or cycling" if heavy else "brisk walking"
-    if band == "Low":
+    if gentle:
+        days = [
+            ("Monday", "10-15 min easy walk, twice a day (indoors or with support if needed)"),
+            ("Tuesday", "15 min chair exercises: seated leg raises, arm circles, sit-to-stand"),
+            ("Wednesday", "15-20 min easy walk or water walking in a pool"),
+            ("Thursday", "10 min balance practice holding a chair (heel raises, side leg lifts) "
+                         "+ gentle stretching"),
+            ("Friday", "10-15 min easy walk, twice a day"),
+            ("Saturday", "20-30 min tai chi, gentle yoga or water exercise"),
+            ("Sunday", "Rest"),
+        ]
+    elif band == "Low":
         days = [
             ("Monday", f"30 min {cardio}"),
             ("Tuesday", "20-30 min strength exercises (squats, wall push-ups, resistance band)"),
@@ -131,6 +143,11 @@ def weekly_plan(band, bmi, glucose, weight=None):
         food.append("Weight goal: losing 5-7% of your body weight over 6 months lowers diabetes risk.")
     note = ("Start slowly and build up. Check with a doctor before starting exercise, "
             "especially with high risk or other health conditions.")
+    if gentle:
+        note = ("Gentle plan for age 65+ or limited mobility. Do only what feels comfortable, "
+                "use a chair or rail for support, and have someone nearby. Stop and seek help if "
+                "you feel pain, dizziness, chest pain or shortness of breath. Check with a doctor "
+                "or physiotherapist before starting.")
     return days, food, note
 
 
@@ -268,6 +285,9 @@ with tab_check:
                 bmi = num("BMI (kg/m²)", 15.0, 70.0, 24.0, step=0.1, unit=" kg/m²")
 
             family = st.selectbox("Family history of diabetes", list(FAMILY_HISTORY))
+            limited = st.checkbox("I have joint pain or limited mobility",
+                                  help="Gives a gentle, low-impact exercise plan. "
+                                       "This is applied automatically from age 65.")
 
             with st.expander("Optional: skin thickness and insulin (if known)"):
                 st.caption("Leave blank if you don't know them. Missing values are filled in "
@@ -331,7 +351,9 @@ with tab_check:
             for tip in TIPS[band]:
                 st.markdown(f"- {tip}")
 
-            plan = weekly_plan(band, bmi, glucose, w if bmi_mode == "Height and weight" else None)
+            gentle = limited or age >= 65
+            plan = weekly_plan(band, bmi, glucose, w if bmi_mode == "Height and weight" else None,
+                               gentle=gentle)
             st.markdown("**Your weekly plan**")
             p_ex, p_food = st.tabs(["Exercise", "Food guide"])
             with p_ex:
@@ -345,10 +367,10 @@ with tab_check:
             report = pd.DataFrame({
                 "Field": ["Date", "Age", "Pregnancies", "Glucose (mg/dL)", "Diastolic BP (mmHg)",
                           "BMI", "Family history", "Skin thickness (mm)", "Insulin (μU/mL)",
-                          "Model", "Probability", "Risk level"],
+                          "Joint pain / limited mobility", "Model", "Probability", "Risk level"],
                 "Value": [malaysia_now(), age, pregnancies, glucose,
                           bp, bmi, family, "not given" if skin is None else skin, "not given" if insulin is None else insulin,
-                          model_name, f"{prob:.0%}",
+                          "Yes" if limited else "No", model_name, f"{prob:.0%}",
                           band + (" (glucose in diabetic range)" if override else "")],
             })
             details = [(f, v) for f, v in zip(report["Field"], report["Value"])
