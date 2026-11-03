@@ -76,7 +76,7 @@ UI = {
                       "mengemas kini keputusan."},
     "fix_errors": {"en": "Please correct these values first. They are outside realistic medical "
                          "ranges:",
-                   "ms": "Sila betulkan nilai ini dahulu. Ia di luar julat perubatan yang "
+                   "ms": "Sila betulkan nilai ini dahulu. Nilai ini di luar julat perubatan yang "
                          "munasabah:"},
     "range_err": {"en": "**{label}** must be between {lo} and {hi}{unit} (you entered {v:g}).",
                   "ms": "**{label}** mesti antara {lo} dan {hi}{unit} (anda masukkan {v:g})."},
@@ -100,11 +100,13 @@ UI = {
                            "recall {r}.",
                      "ms": "{m} pada set ujian 154 pesakit: ketepatan {a}, kejituan {pr}, "
                            "dapatan semula {r}."},
-    "why_title": {"en": "Why this result?", "ms": "Kenapa keputusan ini?"},
+    "why_title": {"en": "Why this result?", "ms": "Mengapa keputusan ini?"},
     "why_intro": {"en": "How each of your values moved the risk, compared with a typical woman in "
-                        "the data (median values). Red raised your risk, green lowered it.",
+                        "the data (median: glucose {g}, BMI {bmi}, age {age}). Red raised your "
+                        "risk, green lowered it.",
                   "ms": "Bagaimana setiap nilai anda mengubah risiko, berbanding wanita biasa "
-                        "dalam data (nilai median). Merah menaikkan risiko, hijau menurunkannya."},
+                        "dalam data (median: glukosa {g}, BMI {bmi}, umur {age}). Merah menaikkan "
+                        "risiko, hijau menurunkannya."},
     "why_up": {"en": "**{f}** raised your risk the most (+{d} points).",
                "ms": "**{f}** paling banyak menaikkan risiko anda (+{d} mata)."},
     "why_down": {"en": "**{f}** lowered your risk the most ({d} points).",
@@ -157,7 +159,7 @@ UI = {
     "col_settings": {"en": "Best settings", "ms": "Tetapan terbaik"},
     "why_default": {"en": "**Why {m} is the default:** it has the highest 10-fold cross-validation "
                           "accuracy, which is the most reliable measure on a dataset this small.",
-                    "ms": "**Kenapa {m} dipilih sebagai lalai:** ia mempunyai ketepatan "
+                    "ms": "**Mengapa {m} dipilih sebagai lalai:** ia mempunyai ketepatan "
                           "pengesahan silang 10 lipatan tertinggi, ukuran paling boleh dipercayai "
                           "untuk set data sekecil ini."},
     "preproc": {
@@ -195,7 +197,7 @@ UI = {
     # data tab
     "data_title": {"en": "About the training data", "ms": "Tentang data latihan"},
     "patients": {"en": "Patients", "ms": "Pesakit"},
-    "diabetic": {"en": "Diabetic", "ms": "Diabetes"},
+    "diabetic": {"en": "Diabetic", "ms": "Menghidap diabetes"},
     "not_diabetic": {"en": "Not diabetic", "ms": "Bukan diabetes"},
     "avg_age": {"en": "Average age", "ms": "Purata umur"},
     "missing_title": {"en": "Missing values (recorded as 0 in the raw data)",
@@ -222,7 +224,7 @@ UI = {
               "(National Institute of Diabetes and Digestive and Kidney Diseases), 768 pesakit "
               "wanita dewasa.\n- **Model:** Logistic Regression, K-Nearest Neighbours, Random "
               "Forest, Decision Tree (scikit-learn), setiap satu ditala dengan GridSearchCV.\n- "
-              "**Aplikasi:** Streamlit.\n\n**Had:** data datang daripada satu populasi (wanita "
+              "**Aplikasi:** Streamlit.\n\n**Had:** data diperoleh daripada satu populasi (wanita "
               "Pima berumur 21 tahun ke atas), jadi keputusan mungkin kurang tepat untuk kumpulan "
               "lain. Nilai glukosa di sini ialah bacaan ujian toleransi glukosa oral 2 jam. Sentiasa "
               "sahkan dengan ujian perubatan yang betul.\n\n**Privasi:** apa yang anda masukkan "
@@ -233,7 +235,7 @@ UI = {
     "rep_generated": {"en": "Generated {t}", "ms": "Dijana {t}"},
     "rep_risk": {"en": "Estimated risk: {band} ({p} probability)",
                  "ms": "Anggaran risiko: {band} (kebarangkalian {p})"},
-    "rep_model": {"en": "Model used: {m}", "ms": "Model digunakan: {m}"},
+    "rep_model": {"en": "Model used: {m}", "ms": "Model yang digunakan: {m}"},
     "rep_details": {"en": "Your details", "ms": "Maklumat anda"},
     "rep_measure": {"en": "Measurement", "ms": "Ukuran"},
     "rep_value": {"en": "Your value", "ms": "Nilai anda"},
@@ -268,12 +270,12 @@ LABELS = {
                                                     "diabetes"},
     "Vegetarian": {"ms": "Vegetarian"},
     "Vegan": {"ms": "Vegan"},
-    "No eggs": {"ms": "Tiada telur"},
-    "No nuts": {"ms": "Tiada kekacang"},
-    "No fish or seafood": {"ms": "Tiada ikan atau makanan laut"},
-    "No soy": {"ms": "Tiada soya"},
-    "No gluten / wheat": {"ms": "Tiada gluten / gandum"},
-    "No dairy": {"ms": "Tiada tenusu"},
+    "No eggs": {"ms": "Tanpa telur"},
+    "No nuts": {"ms": "Tanpa kekacang"},
+    "No fish or seafood": {"ms": "Tanpa ikan atau makanan laut"},
+    "No soy": {"ms": "Tanpa soya"},
+    "No gluten / wheat": {"ms": "Tanpa gluten / gandum"},
+    "No dairy": {"ms": "Tanpa tenusu"},
     "Joint pain / limited mobility": {"ms": "Sakit sendi / pergerakan terhad"},
     "Asthma": {"ms": "Asma"},
     "Heart condition": {"ms": "Penyakit jantung"},
@@ -349,7 +351,7 @@ TIPS = {
             "Tukar kepada bijirin penuh dan isi separuh pinggan dengan sayur (pinggan Suku-Suku "
             "Separuh).",
             "Bergerak aktif kira-kira 30 minit sehari, 5 hari seminggu.",
-            "Minta ujian glukosa berpuasa atau HbA1c di klinik dalam beberapa bulan ini.",
+            "Minta ujian glukosa berpuasa atau HbA1c di klinik dalam tempoh beberapa bulan akan datang.",
         ],
         "High": [
             "Jumpa doktor segera untuk ujian yang betul (glukosa berpuasa, HbA1c atau OGTT).",
@@ -371,7 +373,7 @@ FOOD_WORDS = {
     "chickpeas": {"ms": "kacang kuda"},
     "brown rice porridge or rice thosai/idli": {"ms": "bubur beras perang atau tosai/idli beras"},
     "oats or wholemeal bread": {"ms": "oat atau roti mil penuh"},
-    "an egg": {"ms": "sebiji telur"}, "tofu scramble": {"ms": "tauhu hancur goreng kering"},
+    "an egg": {"ms": "sebiji telur"}, "tofu scramble": {"ms": "tauhu hancur goreng"},
     "peanut butter": {"ms": "mentega kacang"}, "a banana or fruit": {"ms": "pisang atau buah"},
     "guava": {"ms": "jambu batu"}, "apple": {"ms": "epal"},
     "a handful of nuts": {"ms": "segenggam kekacang"},
@@ -498,13 +500,13 @@ HEALTH_NOTES = {
               "first trimester.",
         "ms": "Kehamilan: alat ini tidak memeriksa diabetes semasa hamil; klinik anda akan "
               "mengujinya (biasanya ujian toleransi glukosa pada minggu ke-24 hingga 28). Berjalan "
-              "santai atau yoga pranatal biasanya sesuai; elakkan sukan berlaga dan berbaring "
+              "santai atau yoga pranatal biasanya sesuai; elakkan sukan yang melibatkan sentuhan badan dan berbaring "
               "terlentang selepas trimester pertama."},
     "Kidney disease": {
         "en": "Kidney disease: protein, salt and potassium needs differ, so follow your renal "
               "dietitian rather than the general food guide.",
         "ms": "Penyakit buah pinggang: keperluan protein, garam dan kalium berbeza, jadi ikut "
-              "nasihat pakar diet renal anda dan bukan panduan makanan umum ini."},
+              "nasihat pakar diet buah pinggang anda dan bukan panduan makanan umum ini."},
     "Other long-term condition": {
         "en": "Other long-term condition: check with your doctor that this plan suits you before "
               "starting.",
@@ -584,7 +586,7 @@ CARDIO = {"low_impact": {"en": "swimming or cycling", "ms": "berenang atau berba
 PLAN_TEXT = {
     "rice": {"en": "Keep rice to about 1 cup per meal and switch to brown rice or mixed rice when "
                    "you can.",
-             "ms": "Hadkan nasi kira-kira 1 cawan setiap hidangan dan tukar kepada beras perang "
+             "ms": "Hadkan nasi kepada kira-kira 1 cawan setiap hidangan dan tukar kepada beras perang "
                    "atau nasi campur apabila boleh."},
     "salt": {"en": "Cut down on salt: less soy sauce (kicap), ikan bilis, salted fish, instant "
                    "noodles and processed food.",

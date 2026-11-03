@@ -144,6 +144,8 @@ with tab_check:
             name = text or t(key, lang)
             v = st.number_input(name, value=value, step=step, help=help, key=f"in_{key}",
                                 placeholder=t("not_known", lang) if optional else None)
+            if isinstance(v, float):
+                v = round(v, 2)  # the +/- buttons can leave tiny float errors (8.299999...)
             if v is not None and not lo <= v <= hi:
                 errors.append(t("range_err", lang, label=name, lo=lo, hi=hi, unit=unit, v=v))
             return v
@@ -255,7 +257,10 @@ with tab_check:
             eff = explain(model_name, values, given)
             factor_lines = []
             with st.expander(t("why_title", lang), expanded=True):
-                st.caption(t("why_intro", lang))
+                med_g = (f"{BASELINE['Glucose'] / MMOL:.1f} mmol/L" if mmol
+                         else f"{BASELINE['Glucose']:.0f} mg/dL")
+                st.caption(t("why_intro", lang, g=med_g, bmi=f"{BASELINE['BMI']:.1f}",
+                             age=f"{BASELINE['Age']:.0f}"))
                 chart_df = pd.DataFrame({
                     t("factor", lang): [label(f, lang) for f in eff.index],
                     t("effect", lang): eff.values.round(1),
@@ -331,9 +336,11 @@ with tab_check:
 
             glucose_txt = f"{g_in} mmol/L ({glucose} mg/dL)" if mmol else f"{glucose} mg/dL"
             none = t("none", lang)
+            body = [(t("height", lang), h), (t("weight", lang), w)] if w else []
             rows = [
                 (t("age", lang), age), (t("pregnancies", lang), pregnancies),
-                (t("f_glucose", lang), glucose_txt), (t("f_bp", lang), bp), ("BMI", bmi),
+                (t("f_glucose", lang), glucose_txt), (t("f_bp", lang), bp),
+                *body, ("BMI", bmi),
                 (t("family", lang), label(family, lang)),
                 (t("f_skin", lang), t("not_given", lang) if skin is None else skin),
                 (t("f_insulin", lang), t("not_given", lang) if insulin is None else insulin),

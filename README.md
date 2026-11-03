@@ -1,7 +1,13 @@
 # Diabetes Risk Assessment (RCAI classroom project)
 
-A Streamlit web app that estimates diabetes risk from glucose, blood pressure, BMI, age,
-pregnancies, family history and (if known) skin thickness and insulin, using four tuned scikit-learn models.
+A Streamlit web app for women aged 21+ that estimates diabetes risk from glucose (mmol/L or
+mg/dL), blood pressure, BMI (or height and weight), age, pregnancies, family history and (if known)
+skin thickness and insulin, using four tuned scikit-learn models. Available in English and
+Bahasa Melayu.
+
+Features: risk level with a "Why this result?" chart, a what-if simulator, a personalised weekly
+exercise plan and food guide (with a gentle plan for age 65+ or health conditions, and options for
+food allergies and diets), PDF and CSV report downloads, and model performance and data tabs.
 
 | Model | Test accuracy | Required |
 |---|---|---|
@@ -12,9 +18,11 @@ pregnancies, family history and (if known) skin thickness and insulin, using fou
 
 ## Files
 - `app.py` – the Streamlit app
+- `content.py` – English and Bahasa Melayu text, tips, weekly plans and health notes
+- `report.py` – builds the PDF report
 - `train.py` – loads the data, cleans it, tunes and tests the models (run `python train.py`)
-- On first start the app trains the four models from `diabetes.csv` (about a minute), then caches them.
-  Running `python train.py` locally also saves `models.joblib` and `metrics.json`, which the app uses if present.
+- `metrics.json` – test results and best settings from tuning; the app rebuilds the tuned models
+  from it in a few seconds on first start
 - `diabetes.csv` – Pima Indians Diabetes dataset (768 patients)
 - `requirements.txt` – libraries for Streamlit Cloud
 
@@ -26,7 +34,7 @@ streamlit run app.py
 
 ## Deploy (Streamlit Community Cloud)
 1. Create a free GitHub account, then a new public repository (e.g. `diabetes-risk-app`).
-2. Click **Add file → Upload files**, drag in `app.py`, `train.py`, `diabetes.csv`, `requirements.txt` and `README.md`, and **Commit**.
+2. Click **Add file → Upload files**, drag in all the files listed above, and **Commit**.
 3. Go to share.streamlit.io, **Continue with GitHub**, then **Create app → Deploy a public app from GitHub**.
 4. Pick your repository, branch `main`, main file `app.py`.
    Under **Advanced settings**, choose Python **3.13**. Click **Deploy**.
