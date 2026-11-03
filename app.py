@@ -110,8 +110,8 @@ with tab_check:
                      help="For a reading of 120/80, enter 80.")
 
             if bmi_mode == "Height and weight":
-                h = num("Height (cm)", 120, 220, 160, unit=" cm")
-                w = num("Weight (kg)", 30, 250, 60, unit=" kg")
+                h = num("Height (cm)", 120.0, 220.0, 160.0, step=0.1, unit=" cm")
+                w = num("Weight (kg)", 30.0, 250.0, 60.0, step=0.1, unit=" kg")
                 bmi = round(w / (h / 100) ** 2, 1) if h and w else 0.0
                 if bmi and not 15 <= bmi <= 70:
                     errors.append(f"Your height and weight give a BMI of {bmi}, which is outside 15-70.")
