@@ -138,9 +138,35 @@ def food_guide(diet):
     return food
 
 
-def weekly_plan(band, bmi, glucose, weight=None, gentle=False, diet=()):
-    """Personalised 7-day exercise plan and food guide, based on risk level, BMI and glucose.
-    gentle=True (age 65+ or limited mobility) gives a low-impact plan."""
+CONDITION_OPTIONS = ["Joint pain / limited mobility", "Asthma", "Heart condition",
+                     "High blood pressure", "Pregnant", "Kidney disease",
+                     "Other long-term condition"]
+# Conditions that switch the exercise plan to the gentle, low-impact version
+GENTLE_CONDITIONS = {"Joint pain / limited mobility", "Heart condition", "Pregnant"}
+HEALTH_NOTES = {
+    "Asthma": "Asthma: keep your reliever inhaler with you, warm up for 10 minutes, and avoid "
+              "exercising outdoors on hazy days (API above 100) or in very cold air. Indoor "
+              "swimming is often well tolerated. Stop if you start wheezing.",
+    "Heart condition": "Heart condition: get your doctor's clearance first and keep exercise light, "
+                       "so you can still talk comfortably. Stop at once if you have chest pain, "
+                       "palpitations or severe breathlessness.",
+    "High blood pressure": "High blood pressure: avoid heavy lifting and holding your breath while "
+                           "exercising, check your blood pressure regularly and keep taking any "
+                           "prescribed medicine.",
+    "Pregnant": "Pregnancy: this tool does not check for gestational diabetes; your clinic tests for "
+                "it (usually a glucose tolerance test at 24-28 weeks). Gentle walking or prenatal "
+                "yoga is usually fine; avoid contact sports and lying flat on your back after the "
+                "first trimester.",
+    "Kidney disease": "Kidney disease: protein, salt and potassium needs differ, so follow your "
+                      "renal dietitian rather than the general food guide.",
+    "Other long-term condition": "Other long-term condition: check with your doctor that this plan "
+                                 "suits you before starting.",
+}
+
+
+def weekly_plan(band, bmi, glucose, weight=None, gentle=False, diet=(), conditions=()):
+    """Personalised 7-day exercise plan, food guide and health notes, based on risk level, BMI,
+    glucose, diet and health conditions. gentle=True gives a low-impact plan."""
     heavy = bmi >= 27.5  # Asian cut-off for obesity: prefer low-impact exercise
     cardio = "swimming or cycling" if heavy else "brisk walking"
     if gentle:
@@ -193,14 +219,19 @@ def weekly_plan(band, bmi, glucose, weight=None, gentle=False, diet=()):
                     f"{weight * 0.07:.1f} kg) over 6 months lowers diabetes risk.")
     elif bmi >= 23:
         food.append("Weight goal: losing 5-7% of your body weight over 6 months lowers diabetes risk.")
+    if "High blood pressure" in conditions or "Kidney disease" in conditions:
+        food.insert(2, "Cut down on salt: less soy sauce (kicap), ikan bilis, salted fish, "
+                       "instant noodles and processed food.")
     note = ("Start slowly and build up. Check with a doctor before starting exercise, "
             "especially with high risk or other health conditions.")
     if gentle:
-        note = ("Gentle plan for age 65+ or limited mobility. Do only what feels comfortable, "
+        note = ("Gentle plan for age 65+, limited mobility, a heart condition or pregnancy. "
+                "Do only what feels comfortable, "
                 "use a chair or rail for support, and have someone nearby. Stop and seek help if "
                 "you feel pain, dizziness, chest pain or shortness of breath. Check with a doctor "
                 "or physiotherapist before starting.")
-    return days, food, note
+    health = [HEALTH_NOTES[c] for c in conditions if c in HEALTH_NOTES]
+    return days, food, note, health
 
 
 def malaysia_now():
@@ -260,7 +291,7 @@ def make_pdf(rows, band, prob, model_name, tips, warning, plan=None):
     pdf.ln(4)
 
     if plan:
-        days, food, note = plan
+        days, food, note, health = plan
         pdf.set_font("Helvetica", "B", 12)
         pdf.cell(0, 8, "Your weekly plan", new_x="LMARGIN", new_y="NEXT")
         pdf.set_font("Helvetica", "", 10)
@@ -280,6 +311,13 @@ def make_pdf(rows, band, prob, model_name, tips, warning, plan=None):
             pdf.multi_cell(0, 6, pdf_safe(f"- {item}"), new_x="LMARGIN", new_y="NEXT")
         pdf.set_font("Helvetica", "I", 9)
         pdf.multi_cell(0, 5, pdf_safe(note), new_x="LMARGIN", new_y="NEXT")
+        if health:
+            pdf.ln(2)
+            pdf.set_font("Helvetica", "B", 10)
+            pdf.cell(0, 7, "Health notes", new_x="LMARGIN", new_y="NEXT")
+            pdf.set_font("Helvetica", "", 10)
+            for item in health:
+                pdf.multi_cell(0, 6, pdf_safe(f"- {item}"), new_x="LMARGIN", new_y="NEXT")
         pdf.ln(4)
 
     pdf.set_font("Helvetica", "I", 9)
@@ -340,9 +378,10 @@ with tab_check:
             diet = st.multiselect("Food allergies or diet (optional)", DIET_OPTIONS,
                                   placeholder="None",
                                   help="The food guide will avoid these foods.")
-            limited = st.checkbox("I have joint pain or limited mobility",
-                                  help="Gives a gentle, low-impact exercise plan. "
-                                       "This is applied automatically from age 65.")
+            conditions = st.multiselect("Other health conditions (optional)", CONDITION_OPTIONS,
+                                        placeholder="None",
+                                        help="Adjusts the exercise plan and adds safety notes. "
+                                             "A gentle plan is used automatically from age 65.")
 
             with st.expander("Optional: skin thickness and insulin (if known)"):
                 st.caption("Leave blank if you don't know them. Missing values are filled in "
@@ -406,9 +445,9 @@ with tab_check:
             for tip in TIPS[band]:
                 st.markdown(f"- {tip}")
 
-            gentle = limited or age >= 65
+            gentle = age >= 65 or bool(GENTLE_CONDITIONS & set(conditions))
             plan = weekly_plan(band, bmi, glucose, w if bmi_mode == "Height and weight" else None,
-                               gentle=gentle, diet=diet)
+                               gentle=gentle, diet=diet, conditions=conditions)
             st.markdown("**Your weekly plan**")
             p_ex, p_food = st.tabs(["Exercise", "Food guide"])
             with p_ex:
@@ -418,14 +457,16 @@ with tab_check:
                 for item in plan[1]:
                     st.markdown(f"- {item}")
             st.caption(plan[2])
+            if plan[3]:
+                st.warning("**Health notes**\n\n" + "\n".join(f"- {n}" for n in plan[3]))
 
             report = pd.DataFrame({
                 "Field": ["Date", "Age", "Pregnancies", "Glucose (mg/dL)", "Diastolic BP (mmHg)",
                           "BMI", "Family history", "Skin thickness (mm)", "Insulin (μU/mL)",
-                          "Joint pain / limited mobility", "Food allergies or diet", "Model", "Probability", "Risk level"],
+                          "Other health conditions", "Food allergies or diet", "Model", "Probability", "Risk level"],
                 "Value": [malaysia_now(), age, pregnancies, glucose,
                           bp, bmi, family, "not given" if skin is None else skin, "not given" if insulin is None else insulin,
-                          "Yes" if limited else "No", ", ".join(diet) or "None", model_name, f"{prob:.0%}",
+                          ", ".join(conditions) or "None", ", ".join(diet) or "None", model_name, f"{prob:.0%}",
                           band + (" (glucose in diabetic range)" if override else "")],
             })
             details = [(f, v) for f, v in zip(report["Field"], report["Value"])
