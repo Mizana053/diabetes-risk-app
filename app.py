@@ -176,11 +176,12 @@ with tab_check:
                                   format_func=lambda k: label(k, lang))
             diet = st.multiselect(t("diet", lang), DIET_OPTIONS, key="in_diet",
                                   format_func=lambda k: label(k, lang),
-                                  placeholder=t("none", lang), help=t("diet_help", lang))
+                                  placeholder=t("none", lang), help=t("diet_help", lang),
+                                  select_all=False)
             conditions = st.multiselect(t("conditions", lang), CONDITION_OPTIONS,
                                         key="in_conditions", format_func=lambda k: label(k, lang),
                                         placeholder=t("none", lang),
-                                        help=t("conditions_help", lang))
+                                        help=t("conditions_help", lang), select_all=False)
 
             with st.expander(t("optional_lab", lang)):
                 st.caption(t("optional_lab_note", lang))
