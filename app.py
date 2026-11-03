@@ -1,31 +1,40 @@
 """Diabetes Risk Assessment - Streamlit app (RCAI classroom project).
 
 Run locally:  streamlit run app.py
+Files: content.py (English / Bahasa Melayu text, tips and weekly plans), report.py (PDF report),
+train.py (data cleaning, model training and tuning).
 """
 import json
 import os
-from datetime import datetime, timedelta, timezone
 
+import altair as alt
 import joblib
 import numpy as np
 import pandas as pd
 import streamlit as st
-from fpdf import FPDF
+from sklearn.metrics import auc, confusion_matrix, roc_curve
+
+from content import (CONDITION_OPTIONS, DIET_OPTIONS, GENTLE_CONDITIONS, LANGS, TIPS, label, t,
+                     weekly_plan)
+from report import make_pdf, malaysia_now
 
 st.set_page_config(page_title="Diabetes Risk Assessment", page_icon="🩺", layout="wide")
 
 FEATURES = ["Pregnancies", "Glucose", "BloodPressure", "SkinThickness", "Insulin",
             "BMI", "DiabetesPedigreeFunction", "Age"]
-COLUMNS = ["Pregnancies", "Glucose", "BloodPressure", "SkinThickness",
-           "Insulin", "BMI", "DiabetesPedigreeFunction", "Age", "Outcome"]
+COLUMNS = FEATURES + ["Outcome"]
+ZERO_MEANS_MISSING = ["Glucose", "BloodPressure", "SkinThickness", "Insulin", "BMI"]
 # Family history choices mapped to typical Diabetes Pedigree Function values
 FAMILY_HISTORY = {
     "No known family history": 0.25,
     "One parent or sibling with diabetes": 0.55,
     "Several close relatives with diabetes": 0.90,
 }
+MMOL = 18.0  # 1 mmol/L of glucose = 18 mg/dL
+SS = st.session_state
 
 
+# ---------------------------------------------------------------- data and models
 @st.cache_resource(show_spinner="Preparing the four models (first start only)...")
 def load_models_and_metrics():
     # 1. Saved models (after running train.py locally), 2. rebuild the tuned models from the
@@ -43,12 +52,29 @@ def load_models_and_metrics():
 @st.cache_data
 def load_data():
     df = pd.read_csv("diabetes.csv", header=None, names=COLUMNS)
-    return df
+    clean = df.copy()
+    clean[ZERO_MEANS_MISSING] = clean[ZERO_MEANS_MISSING].replace(0, np.nan)
+    return df, clean
+
+
+@st.cache_resource
+def test_set_results():
+    """Probabilities, ROC curves and confusion matrices of each model on the 20% test set."""
+    from train import load_split
+    _, X_test, _, y_test = load_split()
+    out = {}
+    for name, model in models.items():
+        p = model.predict_proba(X_test)[:, 1]
+        fpr, tpr, _ = roc_curve(y_test, p)
+        out[name] = {"fpr": fpr, "tpr": tpr, "auc": auc(fpr, tpr),
+                     "cm": confusion_matrix(y_test, (p >= 0.5).astype(int))}
+    return out
 
 
 models, metrics = load_models_and_metrics()
-data = load_data()
+data, clean = load_data()
 best_model = max(metrics, key=lambda m: metrics[m]["cv10_accuracy"])
+BASELINE = clean[FEATURES].median()  # a "typical woman" in the data, used to explain results
 
 
 def risk_band(p):
@@ -59,513 +85,364 @@ def risk_band(p):
     return "High", "🔴"
 
 
-TIPS = {
-    "Low": [
-        "Keep up regular activity: at least 150 minutes of moderate exercise a week.",
-        "Keep sugary drinks and refined carbohydrates (white rice, kuih, teh tarik) occasional.",
-        "Re-check your blood glucose every 1-3 years, or sooner if anything changes.",
-    ],
-    "Moderate": [
-        "Aim to lose 5-7% of body weight if your BMI is above 23 (Asian cut-off for overweight).",
-        "Swap to wholegrains and fill half your plate with vegetables (the Suku-Suku Separuh plate).",
-        "Walk 30 minutes a day, 5 days a week.",
-        "Ask a clinic for a fasting glucose or HbA1c test within the next few months.",
-    ],
-    "High": [
-        "See a doctor soon for a proper test (fasting glucose, HbA1c or OGTT).",
-        "Cut sugary drinks completely and reduce portion sizes of rice and noodles.",
-        "Start daily light exercise and track your weight weekly.",
-        "If you have symptoms (constant thirst, frequent urination, blurred vision), seek care promptly.",
-    ],
-}
-
-DIET_OPTIONS = ["Vegetarian", "Vegan", "No eggs", "No nuts", "No fish or seafood", "No soy",
-                "No gluten / wheat", "No dairy"]
+def predict(model_name, values):
+    return float(models[model_name].predict_proba(pd.DataFrame([values], columns=FEATURES))[0, 1])
 
 
-def food_guide(diet):
-    """Food tips that avoid the user's allergies and diet restrictions."""
-    d = set(diet)
-    vegan = "Vegan" in d
-    veg = vegan or "Vegetarian" in d
-    no_egg = vegan or "No eggs" in d
-    no_fish = veg or "No fish or seafood" in d
-    no_soy = "No soy" in d
-    no_nuts = "No nuts" in d
-    no_gluten = "No gluten / wheat" in d
-    no_dairy = vegan or "No dairy" in d
-
-    protein = []
-    if not no_fish:
-        protein.append("fish")
-    if not veg:
-        protein.append("chicken")
-    if not no_soy:
-        protein.append("tofu or tempeh")
-    if not no_egg:
-        protein.append("eggs")
-    protein += ["dhal or lentils", "chickpeas"]
-
-    base = "brown rice porridge or rice thosai/idli" if no_gluten else "oats or wholemeal bread"
-    if not no_egg:
-        topping = "an egg"
-    elif not no_soy:
-        topping = "tofu scramble"
-    elif not no_nuts:
-        topping = "peanut butter"
-    else:
-        topping = "a banana or fruit"
-
-    snacks = ["guava", "apple"]
-    if not no_nuts:
-        snacks.append("a handful of nuts")
-    if not no_dairy:
-        snacks.append("plain unsweetened yoghurt")
-    snacks.append("roasted chickpeas")
-
-    food = [
-        "Use the Malaysian Healthy Plate (Suku-Suku Separuh): half vegetables and fruit, "
-        f"a quarter protein ({', '.join(protein)}), a quarter "
-        + ("rice or rice noodles (bihun, kuey teow)." if no_gluten else "rice or noodles."),
-        "Drink plain water; order teh O or kopi O kosong / kurang manis instead of teh tarik or sirap.",
-        f"Breakfast: {base} with {topping} instead of roti canai or nasi lemak.",
-        f"Snacks: {', '.join(snacks[:-1])} or {snacks[-1]} instead of kuih, biscuits or fried snacks.",
-        "Choose grilled, steamed or soup dishes over fried and santan (coconut milk) dishes.",
-    ]
-    if diet:
-        food.append("Adjusted for your diet: " + ", ".join(diet) + ". Always check food labels "
-                    "and follow your doctor's or dietitian's advice for allergies.")
-    return food
+def explain(model_name, values, given):
+    """How much each given input moves the probability, compared with the median woman."""
+    base = predict(model_name, values)
+    effects = {}
+    for f in given:
+        swapped = dict(values)
+        swapped[f] = BASELINE[f]
+        effects[f] = (base - predict(model_name, swapped)) * 100
+    return pd.Series(effects).sort_values()
 
 
-CONDITION_OPTIONS = ["Joint pain / limited mobility", "Asthma", "Heart condition",
-                     "High blood pressure", "Pregnant", "Kidney disease",
-                     "Other long-term condition"]
-# Conditions that switch the exercise plan to the gentle, low-impact version
-GENTLE_CONDITIONS = {"Joint pain / limited mobility", "Heart condition", "Pregnant"}
-HEALTH_NOTES = {
-    "Asthma": "Asthma: keep your reliever inhaler with you, warm up for 10 minutes, and avoid "
-              "exercising outdoors on hazy days (API above 100) or in very cold air. Indoor "
-              "swimming is often well tolerated. Stop if you start wheezing.",
-    "Heart condition": "Heart condition: get your doctor's clearance first and keep exercise light, "
-                       "so you can still talk comfortably. Stop at once if you have chest pain, "
-                       "palpitations or severe breathlessness.",
-    "High blood pressure": "High blood pressure: avoid heavy lifting and holding your breath while "
-                           "exercising, check your blood pressure regularly and keep taking any "
-                           "prescribed medicine.",
-    "Pregnant": "Pregnancy: this tool does not check for gestational diabetes; your clinic tests for "
-                "it (usually a glucose tolerance test at 24-28 weeks). Gentle walking or prenatal "
-                "yoga is usually fine; avoid contact sports and lying flat on your back after the "
-                "first trimester.",
-    "Kidney disease": "Kidney disease: protein, salt and potassium needs differ, so follow your "
-                      "renal dietitian rather than the general food guide.",
-    "Other long-term condition": "Other long-term condition: check with your doctor that this plan "
-                                 "suits you before starting.",
-}
+def plain(text):
+    # Field names for the report, without "(optional)"
+    return text.replace(" (optional)", "").replace(" (pilihan)", "")
 
 
-def weekly_plan(band, bmi, glucose, weight=None, gentle=False, diet=(), conditions=()):
-    """Personalised 7-day exercise plan, food guide and health notes, based on risk level, BMI,
-    glucose, diet and health conditions. gentle=True gives a low-impact plan."""
-    heavy = bmi >= 27.5  # Asian cut-off for obesity: prefer low-impact exercise
-    cardio = "swimming or cycling" if heavy else "brisk walking"
-    if gentle:
-        days = [
-            ("Monday", "10-15 min easy walk, twice a day (indoors or with support if needed)"),
-            ("Tuesday", "15 min chair exercises: seated leg raises, arm circles, sit-to-stand"),
-            ("Wednesday", "15-20 min easy walk or water walking in a pool"),
-            ("Thursday", "10 min balance practice holding a chair (heel raises, side leg lifts) "
-                         "+ gentle stretching"),
-            ("Friday", "10-15 min easy walk, twice a day"),
-            ("Saturday", "20-30 min tai chi, gentle yoga or water exercise"),
-            ("Sunday", "Rest"),
-        ]
-    elif band == "Low":
-        days = [
-            ("Monday", f"30 min {cardio}"),
-            ("Tuesday", "20-30 min strength exercises (squats, wall push-ups, resistance band)"),
-            ("Wednesday", "30 min brisk walking"),
-            ("Thursday", "Rest or 15 min stretching"),
-            ("Friday", f"30 min {cardio}"),
-            ("Saturday", "45 min active outing: badminton, hiking or a park walk"),
-            ("Sunday", "Rest"),
-        ]
-    elif band == "Moderate":
-        days = [
-            ("Monday", f"30 min {cardio} + 10 min walk after dinner"),
-            ("Tuesday", "30 min strength exercises (squats, lunges, resistance band)"),
-            ("Wednesday", f"40 min {cardio}"),
-            ("Thursday", "20 min yoga or stretching + 10 min walk after dinner"),
-            ("Friday", f"30 min {cardio} + 10 min walk after dinner"),
-            ("Saturday", "45-60 min active outing: badminton, hiking or cycling"),
-            ("Sunday", "20 min light walk"),
-        ]
-    else:
-        days = [
-            ("Monday", "20-30 min easy walk, ideally after a meal"),
-            ("Tuesday", "20 min light strength exercises (chair squats, wall push-ups)"),
-            ("Wednesday", "30 min easy walk"),
-            ("Thursday", "15 min stretching + 10 min walk after dinner"),
-            ("Friday", "30 min easy walk"),
-            ("Saturday", f"30-40 min light {cardio}"),
-            ("Sunday", "Rest"),
-        ]
-    food = food_guide(diet)
-    if glucose >= 140 or band != "Low":
-        food.insert(1, "Keep rice to about 1 cup per meal and switch to brown rice or "
-                       "mixed rice when you can.")
-    if bmi >= 23 and weight:
-        food.append(f"Weight goal: losing 5-7% of your weight ({weight * 0.05:.1f}-"
-                    f"{weight * 0.07:.1f} kg) over 6 months lowers diabetes risk.")
-    elif bmi >= 23:
-        food.append("Weight goal: losing 5-7% of your body weight over 6 months lowers diabetes risk.")
-    if "High blood pressure" in conditions or "Kidney disease" in conditions:
-        food.insert(2, "Cut down on salt: less soy sauce (kicap), ikan bilis, salted fish, "
-                       "instant noodles and processed food.")
-    note = ("Start slowly and build up. Check with a doctor before starting exercise, "
-            "especially with high risk or other health conditions.")
-    if gentle:
-        note = ("Gentle plan for age 65+, limited mobility, a heart condition or pregnancy. "
-                "Do only what feels comfortable, "
-                "use a chair or rail for support, and have someone nearby. Stop and seek help if "
-                "you feel pain, dizziness, chest pain or shortness of breath. Check with a doctor "
-                "or physiotherapist before starting.")
-    health = [HEALTH_NOTES[c] for c in conditions if c in HEALTH_NOTES]
-    return days, food, note, health
-
-
-def malaysia_now():
-    # The cloud server runs on UTC; reports show Malaysia time (UTC+8).
-    return datetime.now(timezone(timedelta(hours=8))).strftime("%d %b %Y, %I:%M %p (MYT)")
-
-
-def pdf_safe(text):
-    # The built-in PDF font covers Latin-1 only, so swap the few symbols outside it.
-    text = str(text).replace("μ", "u").replace("–", "-").replace("’", "'")
-    return text.encode("latin-1", "replace").decode("latin-1")
-
-
-def make_pdf(rows, band, prob, model_name, tips, warning, plan=None):
-    """Build the PDF report and return its bytes."""
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_margins(18, 18, 18)
-    pdf.set_font("Helvetica", "B", 18)
-    pdf.cell(0, 10, "Diabetes Risk Assessment Report", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font("Helvetica", "", 10)
-    pdf.set_text_color(90, 90, 90)
-    pdf.cell(0, 6, pdf_safe(f"Generated {malaysia_now()}"), new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(4)
-
-    colour = {"Low": (34, 139, 34), "Moderate": (204, 153, 0), "High": (200, 30, 30)}[band]
-    pdf.set_text_color(*colour)
-    pdf.set_font("Helvetica", "B", 15)
-    pdf.cell(0, 9, pdf_safe(f"Estimated risk: {band} ({prob:.0%} probability)"),
-             new_x="LMARGIN", new_y="NEXT")
-    pdf.set_text_color(0, 0, 0)
-    pdf.set_font("Helvetica", "", 10)
-    pdf.cell(0, 6, pdf_safe(f"Model used: {model_name}"), new_x="LMARGIN", new_y="NEXT")
-    if warning:
-        pdf.set_font("Helvetica", "B", 10)
-        pdf.multi_cell(0, 6, pdf_safe(warning), new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(4)
-
-    pdf.set_font("Helvetica", "B", 12)
-    pdf.cell(0, 8, "Your details", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font("Helvetica", "", 10)
-    with pdf.table(col_widths=(45, 55), text_align=("LEFT", "LEFT"), line_height=7) as table:
-        head = table.row()
-        head.cell("Measurement")
-        head.cell("Your value")
-        for field, value in rows:
-            r = table.row()
-            r.cell(pdf_safe(field))
-            r.cell(pdf_safe(value))
-    pdf.ln(4)
-
-    pdf.set_font("Helvetica", "B", 12)
-    pdf.cell(0, 8, "What you can do", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font("Helvetica", "", 10)
-    for tip in tips:
-        pdf.multi_cell(0, 6, pdf_safe(f"- {tip}"), new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(4)
-
-    if plan:
-        days, food, note, health = plan
-        pdf.set_font("Helvetica", "B", 12)
-        pdf.cell(0, 8, "Your weekly plan", new_x="LMARGIN", new_y="NEXT")
-        pdf.set_font("Helvetica", "", 10)
-        with pdf.table(col_widths=(25, 75), text_align=("LEFT", "LEFT"), line_height=7) as table:
-            head = table.row()
-            head.cell("Day")
-            head.cell("Exercise")
-            for day, activity in days:
-                r = table.row()
-                r.cell(day)
-                r.cell(pdf_safe(activity))
-        pdf.ln(3)
-        pdf.set_font("Helvetica", "B", 10)
-        pdf.cell(0, 7, "Food guide", new_x="LMARGIN", new_y="NEXT")
-        pdf.set_font("Helvetica", "", 10)
-        for item in food:
-            pdf.multi_cell(0, 6, pdf_safe(f"- {item}"), new_x="LMARGIN", new_y="NEXT")
-        pdf.set_font("Helvetica", "I", 9)
-        pdf.multi_cell(0, 5, pdf_safe(note), new_x="LMARGIN", new_y="NEXT")
-        if health:
-            pdf.ln(2)
-            pdf.set_font("Helvetica", "B", 10)
-            pdf.cell(0, 7, "Health notes", new_x="LMARGIN", new_y="NEXT")
-            pdf.set_font("Helvetica", "", 10)
-            for item in health:
-                pdf.multi_cell(0, 6, pdf_safe(f"- {item}"), new_x="LMARGIN", new_y="NEXT")
-        pdf.ln(4)
-
-    pdf.set_font("Helvetica", "I", 9)
-    pdf.set_text_color(90, 90, 90)
-    pdf.multi_cell(0, 5, "This report is for education and screening only. It is not a medical "
-                         "diagnosis and does not replace a blood test or a doctor's advice. "
-                         "Model trained on the Pima Indians Diabetes dataset (women aged 21+).")
-    return bytes(pdf.output())
+def reset_result():
+    # Switching body-size or glucose unit changes the inputs, so ask for a fresh check.
+    if SS.get("checked"):
+        SS.checked = False
+        SS.changed = True
 
 
 # ---------------------------------------------------------------- header
-st.title("🩺 Diabetes Risk Assessment")
-st.caption("An AI risk-screening tool for women aged 21+, trained on the Pima Indians Diabetes "
-           "dataset (768 women). It estimates risk only and is not a medical diagnosis.")
+head_l, head_r = st.columns([4, 1.3])
+with head_r:
+    lang = st.radio("Language / Bahasa", list(LANGS), format_func=LANGS.get, horizontal=True,
+                    key="lang", label_visibility="collapsed")
+with head_l:
+    st.title("🩺 " + t("title", lang))
+st.caption(t("subtitle", lang))
 
 tab_check, tab_models, tab_data, tab_about = st.tabs(
-    ["Risk check", "Model performance", "Data insights", "About"])
+    [t("tab_check", lang), t("tab_models", lang), t("tab_data", lang), t("tab_about", lang)])
 
 # ---------------------------------------------------------------- risk check
 with tab_check:
     left, right = st.columns([1, 1.2], gap="large")
 
     with left:
-        st.subheader("Your details")
-        st.info("This tool is for **women aged 21 and over**, the group the models were "
-                "trained on.")
-        bmi_mode = st.radio("Body size", ["Height and weight", "I know my BMI"], horizontal=True)
+        st.subheader(t("your_details", lang))
+        st.info(t("women_only", lang))
+        c_unit, c_body = st.columns(2)
+        g_unit = c_unit.radio(t("glucose_unit", lang), ["mmol/L", "mg/dL"], horizontal=True,
+                              key="g_unit", on_change=reset_result)
+        bmi_mode = c_body.radio(t("body_size", lang), ["Height and weight", "I know my BMI"],
+                                format_func=lambda k: label(k, lang), horizontal=True,
+                                key="bmi_mode", on_change=reset_result)
         errors = []
 
-        def num(label, lo, hi, value, step=1, help=None, optional=False, unit=""):
+        def num(key, lo, hi, value, step=1, help=None, optional=False, unit="", text=None):
             """Number box that records an error if the value is outside a realistic range."""
-            v = st.number_input(label, value=value, step=step, help=help,
-                                placeholder="Not known" if optional else None)
+            name = text or t(key, lang)
+            v = st.number_input(name, value=value, step=step, help=help, key=f"in_{key}",
+                                placeholder=t("not_known", lang) if optional else None)
             if v is not None and not lo <= v <= hi:
-                errors.append(f"**{label}** must be between {lo} and {hi}{unit} (you entered {v:g}).")
+                errors.append(t("range_err", lang, label=name, lo=lo, hi=hi, unit=unit, v=v))
             return v
 
         with st.form("inputs"):
-            age = num("Age (years)", 21, 100, 35,
-                      help="The model was trained on adults aged 21 and over.", unit=" years")
-            pregnancies = num("Number of pregnancies (0 if none)", 0, 17, 0)
-            glucose = num("Blood glucose (mg/dL)", 40, 400, 110, unit=" mg/dL",
-                          help="2-hour glucose from an oral glucose tolerance test. "
-                               "To convert from mmol/L, multiply by 18.")
-            bp = num("Diastolic blood pressure (mmHg) - the lower number", 40, 130, 75, unit=" mmHg",
-                     help="For a reading of 120/80, enter 80.")
+            age = num("age", 21, 100, 35, help=t("age_help", lang), unit=" " + (
+                "years" if lang == "en" else "tahun"))
+            pregnancies = num("pregnancies", 0, 17, 0)
+            if g_unit == "mmol/L":
+                g_in = num("glucose_mmol", 2.2, 22.2, 6.1, step=0.1, unit=" mmol/L",
+                           help=t("glucose_help", lang))
+                glucose = round(g_in * MMOL) if g_in is not None else 0
+            else:
+                g_in = num("glucose_mgdl", 40, 400, 110, unit=" mg/dL",
+                           help=t("glucose_help", lang))
+                glucose = g_in
+            bp = num("bp", 40, 130, 75, unit=" mmHg", help=t("bp_help", lang))
 
+            w = None
             if bmi_mode == "Height and weight":
-                h = num("Height (cm)", 120.0, 220.0, 160.0, step=0.1, unit=" cm")
-                w = num("Weight (kg)", 30.0, 250.0, 60.0, step=0.1, unit=" kg")
+                h = num("height", 120.0, 220.0, 160.0, step=0.1, unit=" cm")
+                w = num("weight", 30.0, 250.0, 60.0, step=0.1, unit=" kg")
                 bmi = round(w / (h / 100) ** 2, 1) if h and w else 0.0
                 if bmi and not 15 <= bmi <= 70:
-                    errors.append(f"Your height and weight give a BMI of {bmi}, which is outside 15-70.")
+                    errors.append(t("bmi_err", lang, bmi=bmi))
             else:
-                bmi = num("BMI (kg/m²)", 15.0, 70.0, 24.0, step=0.1, unit=" kg/m²")
+                bmi = num("bmi", 15.0, 70.0, 24.0, step=0.1, unit=" kg/m²")
 
-            family = st.selectbox("Family history of diabetes", list(FAMILY_HISTORY))
-            diet = st.multiselect("Food allergies or diet (optional)", DIET_OPTIONS,
-                                  placeholder="None",
-                                  help="The food guide will avoid these foods.")
-            conditions = st.multiselect("Other health conditions (optional)", CONDITION_OPTIONS,
-                                        placeholder="None",
-                                        help="Adjusts the exercise plan and adds safety notes. "
-                                             "A gentle plan is used automatically from age 65.")
+            family = st.selectbox(t("family", lang), list(FAMILY_HISTORY), key="in_family",
+                                  format_func=lambda k: label(k, lang))
+            diet = st.multiselect(t("diet", lang), DIET_OPTIONS, key="in_diet",
+                                  format_func=lambda k: label(k, lang),
+                                  placeholder=t("none", lang), help=t("diet_help", lang))
+            conditions = st.multiselect(t("conditions", lang), CONDITION_OPTIONS,
+                                        key="in_conditions", format_func=lambda k: label(k, lang),
+                                        placeholder=t("none", lang),
+                                        help=t("conditions_help", lang))
 
-            with st.expander("Optional: skin thickness and insulin (if known)"):
-                st.caption("Leave blank if you don't know them. Missing values are filled in "
-                           "from the most similar patients in the training data.")
-                skin = num("Triceps skin fold thickness (mm)", 5, 100, None, optional=True, unit=" mm")
-                insulin = num("2-hour serum insulin (μU/mL)", 10, 900, None, optional=True, unit=" μU/mL")
+            with st.expander(t("optional_lab", lang)):
+                st.caption(t("optional_lab_note", lang))
+                skin = num("skin", 5, 100, None, optional=True, unit=" mm")
+                insulin = num("insulin", 10, 900, None, optional=True, unit=" μU/mL")
 
-            model_name = st.selectbox("Prediction model", list(models),
+            model_name = st.selectbox(t("model", lang), list(models), key="in_model",
                                       index=list(models).index(best_model),
-                                      help=f"Default: {best_model}, which had the best "
-                                           "10-fold cross-validation accuracy.")
-            submitted = st.form_submit_button("Check my risk", type="primary",
-                                              width="stretch")
+                                      help=t("model_help", lang, m=best_model))
+            submitted = st.form_submit_button(t("check", lang), type="primary", width="stretch")
+
+    if submitted:
+        SS.checked = True
+        SS.changed = False
+        SS.rid = SS.get("rid", 0) + 1  # new result: reset the what-if sliders
 
     with right:
-        st.subheader("Your result")
-        if not submitted:
-            st.info("Fill in your details and press **Check my risk**.")
+        st.subheader(t("your_result", lang))
+        if not SS.get("checked"):
+            st.info(t("recheck" if SS.get("changed") else "fill_in", lang))
         elif errors:
-            st.error("Please correct these values first. They are outside realistic medical ranges:")
+            st.error(t("fix_errors", lang))
             for e in errors:
                 st.markdown(f"- {e}")
         else:
+            mmol = g_unit == "mmol/L"
             if bmi_mode == "Height and weight":
-                st.caption(f"Your BMI from height and weight: **{bmi}**")
-            row = pd.DataFrame([[pregnancies, glucose, bp,
-                                 np.nan if skin is None else skin,
-                                 np.nan if insulin is None else insulin,
-                                 bmi, FAMILY_HISTORY[family], age]], columns=FEATURES)
-            prob = float(models[model_name].predict_proba(row)[0, 1])
+                st.caption(t("bmi_from_hw", lang, bmi=bmi))
+            if mmol:
+                st.caption(t("glucose_conv", lang, mmol=g_in, mgdl=glucose))
+            values = {"Pregnancies": pregnancies, "Glucose": glucose, "BloodPressure": bp,
+                      "SkinThickness": np.nan if skin is None else skin,
+                      "Insulin": np.nan if insulin is None else insulin,
+                      "BMI": bmi, "DiabetesPedigreeFunction": FAMILY_HISTORY[family], "Age": age}
+            prob = predict(model_name, values)
             band, icon = risk_band(prob)
 
-            # Clinical override: a 2-hour glucose of 200 mg/dL or more is in the
+            # Clinical override: a 2-hour glucose of 200 mg/dL (11.1 mmol/L) or more is in the
             # diagnostic range for diabetes, and the training data stops at 199.
             override = glucose >= 200
+            g200 = "11.1 mmol/L" if mmol else "200 mg/dL"
+            g_pre = ("7.8", "11.0 mmol/L") if mmol else ("140", "199 mg/dL")
+            warning = ""
             if override:
                 band, icon = "High", "🔴"
-                st.error("Your glucose is **200 mg/dL or higher**, which is in the diabetic range "
-                         "on a glucose tolerance test. Please see a doctor.")
+                warning = t("diabetic_range", lang, g=g200).replace("**", "")
+                st.error(t("diabetic_range", lang, g=g200))
             elif glucose >= 140:
-                st.warning("A 2-hour glucose of 140-199 mg/dL is in the pre-diabetes range.")
+                warning = t("prediabetic_range", lang, lo=g_pre[0], hi=g_pre[1])
+                st.warning(warning)
 
-            st.metric("Estimated risk", f"{icon} {band}")
-            st.caption(f"{prob:.0%} probability of diabetes ({model_name})")
+            st.metric(t("est_risk", lang), f"{icon} {label(band, lang)}")
+            st.caption(t("prob_line", lang, p=f"{prob:.0%}", m=model_name))
             mm = metrics[model_name]
-            st.caption(f"{model_name} on the 154-patient test set: accuracy {mm['accuracy']:.1%}, "
-                       f"precision {mm['precision']:.1%}, recall {mm['recall']:.1%}.")
+            st.caption(t("model_scores", lang, m=model_name, a=f"{mm['accuracy']:.1%}",
+                         pr=f"{mm['precision']:.1%}", r=f"{mm['recall']:.1%}"))
             st.progress(min(max(prob, 0.0), 1.0))
 
-            st.markdown("**All four models**")
+            # --- why this result
+            given = [f for f in FEATURES
+                     if not (f == "SkinThickness" and skin is None)
+                     and not (f == "Insulin" and insulin is None)]
+            eff = explain(model_name, values, given)
+            factor_lines = []
+            with st.expander(t("why_title", lang), expanded=True):
+                st.caption(t("why_intro", lang))
+                chart_df = pd.DataFrame({
+                    t("factor", lang): [label(f, lang) for f in eff.index],
+                    t("effect", lang): eff.values.round(1),
+                    "dir": np.where(eff.values >= 0, "up", "down")})
+                chart = alt.Chart(chart_df).mark_bar().encode(
+                    x=alt.X(f"{t('effect', lang)}:Q"),
+                    y=alt.Y(f"{t('factor', lang)}:N", sort=None, title=None),
+                    color=alt.Color("dir:N", scale=alt.Scale(domain=["up", "down"],
+                                                             range=["#d64545", "#2e9e5b"]),
+                                    legend=None),
+                    tooltip=[t("factor", lang), t("effect", lang)])
+                st.altair_chart(chart, width="stretch")
+                top_up, top_down = eff.idxmax(), eff.idxmin()
+                if eff[top_up] >= 1:
+                    line = t("why_up", lang, f=label(top_up, lang), d=f"{eff[top_up]:.0f}")
+                    st.markdown(line)
+                    factor_lines.append(line.replace("**", ""))
+                if eff[top_down] <= -1:
+                    line = t("why_down", lang, f=label(top_down, lang), d=f"{eff[top_down]:.0f}")
+                    st.markdown(line)
+                    factor_lines.append(line.replace("**", ""))
+
+            # --- what if
+            rid = SS.get("rid", 0)
+            with st.expander(t("whatif_title", lang)):
+                st.caption(t("whatif_intro", lang))
+                if mmol:
+                    wg = st.slider(t("glucose_mmol", lang), 2.2, 11.0, float(min(g_in, 11.0)), 0.1,
+                                   key=f"wi_g_{rid}")
+                    wg_mg = round(wg * MMOL)
+                else:
+                    wg_mg = st.slider(t("glucose_mgdl", lang), 40, 199, int(min(glucose, 199)),
+                                      key=f"wi_g_{rid}")
+                wb = st.slider("BMI", 15.0, 70.0, float(bmi), 0.1, key=f"wi_b_{rid}")
+                wbp = st.slider(t("bp", lang), 40, 130, int(bp), key=f"wi_bp_{rid}")
+                new = predict(model_name, {**values, "Glucose": wg_mg, "BMI": wb,
+                                           "BloodPressure": wbp})
+                diff = (new - prob) * 100
+                st.markdown(t("whatif_result", lang, band=label(risk_band(new)[0], lang),
+                              p=f"{new:.0%}", diff=f"{diff:+.0f}"))
+
+            st.markdown(f"**{t('all_models', lang)}**")
             comp = pd.DataFrame({
-                "Model": list(models),
-                "Probability": [float(m.predict_proba(row)[0, 1]) for m in models.values()],
-                "Test accuracy": [metrics[m]["accuracy"] for m in models],
+                t("col_model", lang): list(models),
+                t("col_prob", lang): [predict(m, values) for m in models],
+                t("col_acc", lang): [metrics[m]["accuracy"] for m in models],
             })
-            comp["Risk"] = comp["Probability"].map(lambda p: risk_band(p)[0])
-            st.dataframe(comp.style.format({"Probability": "{:.0%}", "Test accuracy": "{:.1%}"}),
+            comp[t("col_risk", lang)] = comp[t("col_prob", lang)].map(
+                lambda p: label(risk_band(p)[0], lang))
+            st.dataframe(comp.style.format({t("col_prob", lang): "{:.0%}",
+                                            t("col_acc", lang): "{:.1%}"}),
                          hide_index=True, width="stretch")
 
-            st.markdown("**What you can do**")
-            for tip in TIPS[band]:
+            st.markdown(f"**{t('what_you_can_do', lang)}**")
+            for tip in TIPS[lang][band]:
                 st.markdown(f"- {tip}")
 
             gentle = age >= 65 or bool(GENTLE_CONDITIONS & set(conditions))
-            plan = weekly_plan(band, bmi, glucose, w if bmi_mode == "Height and weight" else None,
-                               gentle=gentle, diet=diet, conditions=conditions)
-            st.markdown("**Your weekly plan**")
-            p_ex, p_food = st.tabs(["Exercise", "Food guide"])
+            plan = weekly_plan(band, bmi, glucose, w, gentle=gentle, diet=diet,
+                               conditions=conditions, lang=lang)
+            st.markdown(f"**{t('weekly_plan', lang)}**")
+            p_ex, p_food = st.tabs([t("exercise", lang), t("food_guide", lang)])
             with p_ex:
-                st.dataframe(pd.DataFrame(plan[0], columns=["Day", "Exercise"]),
+                st.dataframe(pd.DataFrame(plan[0], columns=[t("day", lang), t("exercise", lang)]),
                              hide_index=True, width="stretch")
             with p_food:
                 for item in plan[1]:
                     st.markdown(f"- {item}")
             st.caption(plan[2])
             if plan[3]:
-                st.warning("**Health notes**\n\n" + "\n".join(f"- {n}" for n in plan[3]))
+                st.warning(f"**{t('health_notes', lang)}**\n\n"
+                           + "\n".join(f"- {n}" for n in plan[3]))
 
-            report = pd.DataFrame({
-                "Field": ["Date", "Age", "Pregnancies", "Glucose (mg/dL)", "Diastolic BP (mmHg)",
-                          "BMI", "Family history", "Skin thickness (mm)", "Insulin (μU/mL)",
-                          "Other health conditions", "Food allergies or diet", "Model", "Probability", "Risk level"],
-                "Value": [malaysia_now(), age, pregnancies, glucose,
-                          bp, bmi, family, "not given" if skin is None else skin, "not given" if insulin is None else insulin,
-                          ", ".join(conditions) or "None", ", ".join(diet) or "None", model_name, f"{prob:.0%}",
-                          band + (" (glucose in diabetic range)" if override else "")],
-            })
-            details = [(f, v) for f, v in zip(report["Field"], report["Value"])
-                       if f not in ("Date", "Model", "Probability", "Risk level")]
-            if override:
-                warning = "Glucose is 200 mg/dL or higher, which is in the diabetic range. Please see a doctor."
-            elif glucose >= 140:
-                warning = "Glucose of 140-199 mg/dL is in the pre-diabetes range."
-            else:
-                warning = ""
-            st.markdown("**Download your report**")
+            glucose_txt = f"{g_in} mmol/L ({glucose} mg/dL)" if mmol else f"{glucose} mg/dL"
+            none = t("none", lang)
+            rows = [
+                (t("age", lang), age), (t("pregnancies", lang), pregnancies),
+                (t("f_glucose", lang), glucose_txt), (t("f_bp", lang), bp), ("BMI", bmi),
+                (t("family", lang), label(family, lang)),
+                (t("f_skin", lang), t("not_given", lang) if skin is None else skin),
+                (t("f_insulin", lang), t("not_given", lang) if insulin is None else insulin),
+                (plain(t("conditions", lang)), ", ".join(label(c, lang) for c in conditions) or none),
+                (plain(t("diet", lang)), ", ".join(label(d, lang) for d in diet) or none),
+            ]
+            level = label(band, lang) + (t("in_diabetic_range", lang) if override else "")
+            report = pd.DataFrame(
+                [(t("f_date", lang), malaysia_now())] + rows
+                + [(t("model", lang), model_name), (t("f_prob", lang), f"{prob:.0%}"),
+                   (t("f_level", lang), level)],
+                columns=[t("rep_measure", lang), t("rep_value", lang)])
+
+            st.markdown(f"**{t('download', lang)}**")
             d1, d2 = st.columns(2)
-            d1.download_button("PDF (easy to open and print)",
-                               make_pdf(details, band, prob, model_name, TIPS[band], warning, plan),
+            d1.download_button(t("dl_pdf", lang),
+                               make_pdf(rows, band, prob, model_name, TIPS[lang][band], warning,
+                                        plan, factor_lines, lang),
                                file_name="diabetes_risk_report.pdf", mime="application/pdf",
-                               width="stretch")
-            d2.download_button("CSV (for Excel)", report.to_csv(index=False).encode("utf-8-sig"),
+                               width="stretch", on_click="ignore")
+            d2.download_button(t("dl_csv", lang), report.to_csv(index=False).encode("utf-8-sig"),
                                file_name="diabetes_risk_report.csv", mime="text/csv",
-                               width="stretch")
+                               width="stretch", on_click="ignore")
 
-    st.caption("⚠️ This tool is for education and screening only. It does not replace a "
-               "blood test or a doctor's advice.")
+    st.caption(t("disclaimer", lang))
 
 # ---------------------------------------------------------------- model performance
 with tab_models:
-    st.subheader("How the models performed")
-    st.write("Each model was tuned with 5-fold cross-validation (GridSearchCV) on 80% of the data "
-             "and tested on the remaining 20% (154 patients). Because one 20% test set can be lucky "
-             "or unlucky, the 10-fold cross-validation accuracy on all 768 patients is shown too.")
+    st.subheader(t("perf_title", lang))
+    st.write(t("perf_intro", lang))
+    res = test_set_results()
     table = pd.DataFrame([{
-        "Model": name,
-        "Test accuracy": m["accuracy"],
-        "Required": m["target"],
-        "Precision": m["precision"],
-        "Recall": m["recall"],
+        t("col_model", lang): name,
+        t("col_acc", lang): m["accuracy"],
+        t("col_required", lang): m["target"],
+        t("col_precision", lang): m["precision"],
+        t("col_recall", lang): m["recall"],
         "F1": m["f1"],
-        "10-fold CV accuracy": m["cv10_accuracy"],
-        "Best settings": ", ".join(f"{k}={v}" for k, v in m["best_params"].items()),
+        "AUC": res[name]["auc"],
+        t("col_cv", lang): m["cv10_accuracy"],
+        t("col_settings", lang): ", ".join(f"{k}={v}" for k, v in m["best_params"].items()),
     } for name, m in metrics.items()])
-    pct = {c: "{:.1%}" for c in ["Test accuracy", "Required", "Precision", "Recall", "F1",
-                                 "10-fold CV accuracy"]}
-    st.dataframe(table.style.format(pct), hide_index=True, width="stretch")
-    st.bar_chart(table.set_index("Model")[["Test accuracy", "Required"]])
-    st.markdown(
-        f"""
-**Why {best_model} is the default:** it has the highest 10-fold cross-validation accuracy,
-which is the most reliable measure on a dataset this small.
+    pct = {c: "{:.1%}" for c in [t("col_acc", lang), t("col_required", lang),
+                                 t("col_precision", lang), t("col_recall", lang), "F1",
+                                 t("col_cv", lang)]}
+    st.dataframe(table.style.format({**pct, "AUC": "{:.2f}"}), hide_index=True, width="stretch")
+    st.bar_chart(table.set_index(t("col_model", lang))[[t("col_acc", lang),
+                                                        t("col_required", lang)]])
+    st.markdown(t("why_default", lang, m=best_model))
+    st.markdown(t("preproc", lang))
 
-**Pre-processing**
-- In this dataset a 0 for glucose, blood pressure, skin thickness, insulin or BMI means
-  "not recorded", so those zeros were turned into missing values.
-- Missing values (common for skin thickness, 30%, and insulin, 49%) were filled in from the
-  5 most similar patients (KNN imputation), and all eight features were scaled.
-"""
-    )
+    c_roc, c_cm = st.columns(2, gap="large")
+    with c_roc:
+        st.markdown(f"**{t('roc_title', lang)}**")
+        roc_df = pd.concat([pd.DataFrame({"fpr": r["fpr"], "tpr": r["tpr"],
+                                          "model": f"{n} (AUC {r['auc']:.2f})"})
+                            for n, r in res.items()])
+        lines = alt.Chart(roc_df).mark_line().encode(
+            x=alt.X("fpr:Q", title=t("fpr", lang)), y=alt.Y("tpr:Q", title=t("tpr", lang)),
+            color=alt.Color("model:N", title=None,
+                            legend=alt.Legend(orient="bottom", columns=1, labelLimit=0)))
+        diag = alt.Chart(pd.DataFrame({"fpr": [0, 1], "tpr": [0, 1]})).mark_line(
+            strokeDash=[4, 4], color="grey").encode(x="fpr:Q", y="tpr:Q")
+        st.altair_chart(lines + diag, width="stretch")
+        st.caption(t("roc_note", lang))
+    with c_cm:
+        st.markdown(f"**{t('cm_title', lang)}**")
+        cm_model = st.selectbox(t("cm_model", lang), list(models), key="cm_model",
+                                index=list(models).index(best_model))
+        cm = res[cm_model]["cm"]
+        names = [label("Not diabetic", lang), label("Diabetic", lang)]
+        cm_df = pd.DataFrame([(names[i], names[j], int(cm[i, j])) for i in range(2)
+                              for j in range(2)],
+                             columns=[t("actual", lang), t("predicted", lang), t("count", lang)])
+        base = alt.Chart(cm_df).encode(x=alt.X(f"{t('predicted', lang)}:N", sort=names),
+                                       y=alt.Y(f"{t('actual', lang)}:N", sort=names))
+        heat = base.mark_rect().encode(color=alt.Color(f"{t('count', lang)}:Q", legend=None,
+                                                       scale=alt.Scale(scheme="blues")))
+        text = base.mark_text(fontSize=18).encode(text=f"{t('count', lang)}:Q")
+        st.altair_chart((heat + text).properties(height=240), width="stretch")
+        st.caption(t("cm_note", lang))
+
+    st.markdown(f"**{t('fi_title', lang)}**")
+    rf = models["Random Forest"].named_steps["model"]
+    fi = pd.DataFrame({t("factor", lang): [label(f, lang) for f in FEATURES],
+                       t("importance", lang): rf.feature_importances_})
+    st.altair_chart(alt.Chart(fi).mark_bar(color="#4c78a8").encode(
+        x=f"{t('importance', lang)}:Q",
+        y=alt.Y(f"{t('factor', lang)}:N", sort="-x", title=None)), width="stretch")
 
 # ---------------------------------------------------------------- data insights
 with tab_data:
-    st.subheader("About the training data")
+    st.subheader(t("data_title", lang))
     c1, c2, c3 = st.columns(3)
-    c1.metric("Patients", len(data))
-    c2.metric("Diabetic", f"{data['Outcome'].mean():.0%}")
-    c3.metric("Average age", f"{data['Age'].mean():.0f}")
+    c1.metric(t("patients", lang), len(data))
+    c2.metric(t("diabetic", lang), f"{data['Outcome'].mean():.0%}")
+    c3.metric(t("avg_age", lang), f"{data['Age'].mean():.0f}")
 
-    clean = data.copy()
-    zero_cols = ["Glucose", "BloodPressure", "SkinThickness", "Insulin", "BMI"]
-    clean[zero_cols] = clean[zero_cols].replace(0, np.nan)
+    st.markdown(f"**{t('missing_title', lang)}**")
+    miss = clean[ZERO_MEANS_MISSING].isna().mean()
+    miss.index = [label(c, lang) for c in miss.index]
+    st.bar_chart(miss.rename(t("share_missing", lang)))
 
-    st.markdown("**Missing values (recorded as 0 in the raw data)**")
-    st.bar_chart(clean[zero_cols].isna().mean().rename("Share missing"))
-
-    st.markdown("**Average values: diabetic vs not diabetic**")
+    st.markdown(f"**{t('avg_title', lang)}**")
     avg = clean.groupby("Outcome")[["Glucose", "BloodPressure", "BMI", "Age"]].mean()
-    avg.index = ["Not diabetic", "Diabetic"]
+    avg.index = [label("Not diabetic", lang), label("Diabetic", lang)]
+    avg.columns = [label(c, lang) for c in avg.columns]
     st.dataframe(avg.round(1), width="stretch")
 
-    feature = st.selectbox("Compare a measure", ["Glucose", "BMI", "Age", "BloodPressure"])
+    feature = st.selectbox(t("compare", lang), ["Glucose", "BMI", "Age", "BloodPressure"],
+                           format_func=lambda k: label(k, lang), key="compare")
     bins = pd.cut(clean[feature], 10)
     dist = clean.groupby([bins, "Outcome"], observed=True).size().unstack(fill_value=0)
-    dist.columns = ["Not diabetic", "Diabetic"]
+    dist.columns = [label("Not diabetic", lang), label("Diabetic", lang)]
     dist.index = dist.index.astype(str)
     st.bar_chart(dist)
 
 # ---------------------------------------------------------------- about
 with tab_about:
-    st.subheader("About this project")
-    st.markdown(
-        """
-Built for the **Rocheston Certified AI Engineer (RCAI) classroom project**, APU Certified AI
-Engineer programme 2026.
-
-- **Data:** Pima Indians Diabetes dataset (National Institute of Diabetes and Digestive and
-  Kidney Diseases), 768 adult female patients.
-- **Models:** Logistic Regression, K-Nearest Neighbours, Random Forest, Decision Tree
-  (scikit-learn), each tuned with GridSearchCV.
-- **App:** Streamlit.
-
-**Limitations:** the data comes from one population (Pima women aged 21+), so results may be
-less accurate for other groups. Glucose values here are 2-hour oral glucose tolerance test
-readings. Always confirm with a proper medical test.
-"""
-    )
+    st.subheader(t("about_title", lang))
+    st.markdown(t("about_body", lang))
